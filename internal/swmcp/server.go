@@ -25,6 +25,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/apache/skywalking-cli/pkg/contextkey"
 
@@ -34,29 +35,24 @@ import (
 	"github.com/apache/skywalking-mcp/internal/tools"
 )
 
-// newMcpServer creates a new MCP server instance,
-// and we can add various tools and capabilities to it.
-func newMcpServer() *server.MCPServer {
-	mcpServer := server.NewMCPServer(
-		"skywalking-mcp",
-		"0.1.0",
+// newMCPServer creates a new MCP server with all tools, resources, and prompts registered.
+func newMCPServer() *server.MCPServer {
+	s := server.NewMCPServer(
+		"skywalking-mcp", "0.1.0",
 		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),
-		server.WithLogging())
-
-	// add tools and capabilities to the MCP server
-	tools.AddTraceTools(mcpServer)
-	tools.AddMetricsTools(mcpServer)
-	tools.AddLogTools(mcpServer)
-	tools.AddMQETools(mcpServer)
-
-	// add MQE documentation resources
-	resources.AddMQEResources(mcpServer)
-
-	// add prompts for guided interactions
-	prompts.AddSkyWalkingPrompts(mcpServer)
-
-	return mcpServer
+		server.WithLogging(),
+	)
+	tools.AddTraceTools(s)
+	tools.AddLogTools(s)
+	tools.AddMQETools(s)
+	tools.AddMetadataTools(s)
+	tools.AddEventTools(s)
+	tools.AddAlarmTools(s)
+	tools.AddTopologyTools(s)
+	resources.AddMQEResources(s)
+	prompts.AddSkyWalkingPrompts(s)
+	return s
 }
 
 func initLogger(logFilePath string) (*logrus.Logger, error) {
@@ -85,51 +81,44 @@ func WithSkyWalkingURLAndInsecure(ctx context.Context, url string, insecure bool
 	return ctx
 }
 
-const (
-	skywalkingURLEnvVar = "SW_URL"
-)
-
-// urlAndInsecureFromEnv extracts URL and insecure flag purely from environment variables.
-func urlAndInsecureFromEnv() (string, bool) {
-	urlStr := os.Getenv(skywalkingURLEnvVar)
+// configuredSkyWalkingURL returns the configured SkyWalking OAP URL.
+// The value is sourced from the CLI/config binding for `--sw-url`,
+// falling back to the built-in default when unset.
+func configuredSkyWalkingURL() string {
+	urlStr := viper.GetString("url")
 	if urlStr == "" {
 		urlStr = config.DefaultSWURL
 	}
-	return tools.FinalizeURL(urlStr), false
+	return tools.FinalizeURL(urlStr)
 }
 
-// urlAndInsecureFromHeaders extracts URL and insecure flag for a request.
-// URL is sourced from Header > Environment > Default.
-// Insecure flag is now hardcoded to false.
-func urlAndInsecureFromHeaders(req *http.Request) (string, bool) {
+// urlFromHeaders extracts URL for a request.
+// URL is sourced from Header > configured value > Default.
+func urlFromHeaders(req *http.Request) string {
 	urlStr := req.Header.Get("SW-URL")
 	if urlStr == "" {
-		urlStr = os.Getenv(skywalkingURLEnvVar)
-		if urlStr == "" {
-			urlStr = config.DefaultSWURL
-		}
+		return configuredSkyWalkingURL()
 	}
 
-	return tools.FinalizeURL(urlStr), false
+	return tools.FinalizeURL(urlStr)
 }
 
-// WithSkyWalkingContextFromEnv injects the SkyWalking URL and insecure
-// settings from environment variables into the context.
-var WithSkyWalkingContextFromEnv server.StdioContextFunc = func(ctx context.Context) context.Context {
-	urlStr, _ := urlAndInsecureFromEnv()
-	return WithSkyWalkingURLAndInsecure(ctx, urlStr, false)
+// WithSkyWalkingContextFromConfig injects the SkyWalking URL and insecure
+// settings from global configuration into the context.
+var WithSkyWalkingContextFromConfig server.StdioContextFunc = func(ctx context.Context) context.Context {
+	return WithSkyWalkingURLAndInsecure(ctx, configuredSkyWalkingURL(), false)
 }
 
 // withSkyWalkingContextFromRequest is the shared logic for enriching context from an http.Request.
 func withSkyWalkingContextFromRequest(ctx context.Context, req *http.Request) context.Context {
-	urlStr, _ := urlAndInsecureFromHeaders(req)
+	urlStr := urlFromHeaders(req)
 	return WithSkyWalkingURLAndInsecure(ctx, urlStr, false)
 }
 
 // EnhanceStdioContextFunc returns a StdioContextFunc that enriches the context
-// with SkyWalking settings from the environment.
+// with SkyWalking settings from the global configuration.
 func EnhanceStdioContextFunc() server.StdioContextFunc {
-	return WithSkyWalkingContextFromEnv
+	return WithSkyWalkingContextFromConfig
 }
 
 // EnhanceSSEContextFunc returns a SSEContextFunc that enriches the context

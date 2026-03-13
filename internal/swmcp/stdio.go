@@ -44,7 +44,7 @@ func NewStdioServer() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			url := viper.GetString("url")
 			if url == "" {
-				return errors.New("SW_URL must be specified")
+				return errors.New("--sw-url must be specified")
 			}
 
 			stdioServerConfig := config.StdioServerConfig{
@@ -66,7 +66,7 @@ func runStdioServer(ctx context.Context, cfg *config.StdioServerConfig) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	stdioServer := server.NewStdioServer(newMcpServer())
+	stdioServer := server.NewStdioServer(newMCPServer())
 
 	logger, err := initLogger(cfg.LogFilePath)
 	if err != nil {
